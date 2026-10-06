@@ -5,8 +5,9 @@ from langchain.messages import ToolMessage
 from pydantic import BaseModel, Field
 
 from psc.config import MODEL
-from psc.tools import list_manifests, lookup_cve, scan_k8s_manifest
 from psc.rag import search_runbooks
+from psc.spinner import Spinner
+from psc.tools import list_manifests, lookup_cve, scan_k8s_manifest
 
 class Finding(BaseModel):
     rule_or_cve: str = Field(description="Scanner rule ID (PSC-K8S-xxx) or CVE ID")
@@ -51,6 +52,7 @@ def build_agent(model=MODEL, tools=None, **kwargs):
 agent = build_agent()
 
 if __name__ == "__main__":
-    result = agent.invoke({"messages": [{"role": "user", "content":
-        "Triage payments-api.yaml. The image also bundles log4j-core 2.14 (CVE-2021-44228)."}]})
+    with Spinner("Triage in progress"):
+        result = agent.invoke({"messages": [{"role": "user", "content":
+            "Triage payments-api.yaml. The image also bundles log4j-core 2.14 (CVE-2021-44228)."}]})
     print(result["structured_response"].model_dump_json(indent=2))

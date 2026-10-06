@@ -1,5 +1,11 @@
+import os
 from functools import lru_cache
 from pathlib import Path
+
+# Read before onnxruntime loads. Its telemetry thread locks a mutex while the
+# interpreter is shutting down on macOS and aborts with
+# "recursive_mutex lock failed: Invalid argument" (exit 134) after results print.
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
 
 from fastembed import TextEmbedding
 from langchain.tools import tool

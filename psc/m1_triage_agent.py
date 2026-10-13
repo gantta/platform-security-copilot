@@ -5,7 +5,7 @@ from langchain.messages import ToolMessage
 from pydantic import BaseModel, Field
 
 from psc.config import MODEL
-from psc.rag import search_runbooks
+# from psc.rag import search_runbooks
 from psc.spinner import Spinner
 from psc.tools import list_manifests, lookup_cve, scan_k8s_manifest
 
@@ -24,7 +24,7 @@ class TriageReport(BaseModel):
 SYSTEM_PROMPT = """You are Platform Security Copilot, a DevSecOps triage assistant.
 Use tools to gather facts; never guess CVE severity or scanner results.
 Rank findings most severe first. overall_risk is the highest severity found, or NONE."""
-SYSTEM_PROMPT += "\nFor every fix, cite the runbook section from search_runbooks. Include the SLA."
+# SYSTEM_PROMPT += "\nFor every fix, cite the runbook section from search_runbooks. Include the SLA."
 
 @wrap_tool_call
 def tool_guardrail(request, handler):
@@ -38,7 +38,7 @@ def tool_guardrail(request, handler):
 def build_agent(model=MODEL, tools=None, **kwargs):
     return create_agent(
         model=model,
-        tools=tools or [lookup_cve, scan_k8s_manifest, list_manifests, search_runbooks],
+        tools=tools or [lookup_cve, scan_k8s_manifest, list_manifests], #, search_runbooks],
         system_prompt=SYSTEM_PROMPT,
         response_format=TriageReport,
         middleware=[

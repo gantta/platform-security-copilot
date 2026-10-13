@@ -31,7 +31,7 @@ Searches the local runbooks for how to fix a privileged container and prints the
 uv run python -m psc.m3_workflow
 ```
 
-Scans `payments-api.yaml`, drafts a remediation plan, and pauses for a scripted human review that accepts the risk on `PSC-K8S-005`. Prints the report, then runs a second thread that suppresses the accepted rule.
+Scans `payments-api.yaml`, drafts a remediation plan, and pauses for a human review (`approve`, `reject`, or `accept_risk`). Prints the report. Accepting a rule stores it for the team; a second thread then shows that rule suppressed.
 
 ```bash
 uv run python -m psc.m4_supervisor

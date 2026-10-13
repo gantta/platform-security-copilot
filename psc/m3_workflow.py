@@ -36,7 +36,6 @@ class RemediationPlan(BaseModel):
     sla: str = Field(description="Deadline from the SLA runbook for the highest-severity finding")
 
 def get_llm():
-    # Claude Sonnet 5 rejects `temperature` ("deprecated for this model").
     return init_chat_model(MODEL)
 
 def scan(state: RemediationState, runtime: Runtime[Context]) -> dict:
@@ -105,24 +104,59 @@ builder.add_edge("finalize", END)
 # Agent Server injects its own Postgres checkpointer + store, so export a graph without them.
 graph = builder.compile()
 
+def prompt_human_review(payload: dict) -> dict:
+    """Block until a reviewer answers the interrupt. The dict is the resume value."""
+    print(payload["question"])
+    print("Findings:")
+    for finding in payload["findings"]:
+        print(f"- [{finding['severity']}] {finding['rule']}: {finding['issue']}")
+    plan = payload.get("plan") or {}
+    if plan.get("sla"):
+        print(f"\nSLA: {plan['sla']}")
+    if plan.get("steps"):
+        print("Steps:")
+        for i, step in enumerate(plan["steps"], 1):
+            print(f"{i}. {step}")
+    if plan.get("patched_manifest"):
+        print(f"\nPatched manifest:\n{plan['patched_manifest'].rstrip()}")
+    options = payload["options"]
+    print(f"\nOptions: {', '.join(options)}")
+    print("Choose accept_risk and enter PSC-K8S-005 to show that rule suppressed on the next run.")
+    while True:
+        action = input("Action: ").strip()
+        if action in options:
+            break
+        print(f"Choose one of: {', '.join(options)}")
+    decision = {"action": action}
+    if action == "accept_risk":
+        raw = input("Rules (comma-separated): ").strip()
+        decision["rules"] = [rule.strip() for rule in raw.split(",") if rule.strip()]
+        decision["note"] = input("Note: ").strip()
+    elif action == "reject":
+        decision["note"] = input("Note: ").strip()
+    return decision
+
 if __name__ == "__main__":
+    # In-memory checkpoint and store: each process starts a fresh thread at the review pause.
     app = builder.compile(checkpointer=InMemorySaver(), store=InMemoryStore())
     ctx = Context(team="payments", reviewer="adam")
 
     cfg = {"configurable": {"thread_id": "payments-api-1"}}
     with Spinner("Planning remediation"):
         out = app.invoke({"manifest": "payments-api.yaml"}, cfg, context=ctx)
-    print("Paused with:", out["__interrupt__"][0].value["question"])
-    print("Next node:", app.get_state(cfg).next)
+    pending = out.get("__interrupt__")
+    if not pending:
+        print(out["report"])
+    else:
+        print("Paused. Next node:", app.get_state(cfg).next)
+        decision = prompt_human_review(pending[0].value)
+        with Spinner("Applying review decision"):
+            out = app.invoke(Command(resume=decision), cfg, context=ctx)
+        print(out["report"])
 
-    # Human accepts the risk on the mutable tag and approves the rest
-    with Spinner("Applying review decision"):
-        out = app.invoke(Command(resume={"action": "accept_risk", "rules": ["PSC-K8S-005"],
-                                         "note": "Tag pinning lands with the Q4 registry migration"}), cfg, context=ctx)
-    print(out["report"])
-
-    # New thread, same team: long-term memory suppresses PSC-K8S-005
-    cfg2 = {"configurable": {"thread_id": "payments-api-2"}}
-    with Spinner("Planning remediation"):
-        app.invoke({"manifest": "payments-api.yaml"}, cfg2, context=ctx)
-    print("\nRun 2 suppressed:", app.get_state(cfg2).values["suppressed"])
+        # Same team, new thread: accepted rules are skipped on the next scan.
+        if decision.get("rules"):
+            cfg2 = {"configurable": {"thread_id": "payments-api-2"}}
+            with Spinner("Planning remediation"):
+                app.invoke({"manifest": "payments-api.yaml"}, cfg2, context=ctx)
+            print("\nRun 2 suppressed:", app.get_state(cfg2).values["suppressed"])
